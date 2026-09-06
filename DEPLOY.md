@@ -1,5 +1,15 @@
 # Despliegue en el VPS y CI/CD
 
+## Estado actual (activo)
+
+- App desplegada en el VPS (IONOS, Ubuntu) en `/opt/rendo-services`, contenedor Docker `rendo`
+  detrás de Caddy en `https://rendo-services.duckdns.org`.
+- **CI/CD ACTIVO**: cada `git push` a `main` dispara `.github/workflows/deploy.yml`, que entra por
+  SSH al VPS y corre `scripts/deploy.sh` (git pull + rebuild + health). Probado de punta a punta.
+- Secrets configurados en GitHub: `VPS_HOST`, `VPS_USER`, `VPS_PORT`, `VPS_APP_DIR`, `VPS_SSH_KEY`.
+- El `.env` de producción vive solo en el VPS (no en git).
+
+
 ## Seguridad primero (léelo)
 
 - **NUNCA** pongas tu clave SSH privada en `.env`, en el repo, ni la pegues en un chat.

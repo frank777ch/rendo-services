@@ -50,23 +50,54 @@ python -m rendo serve
 
 ## API
 
-Protegida con `Authorization: Bearer <API_TOKEN>` (salvo `/health`).
+Base en producción: `https://rendo-services.duckdns.org`. Todo protegido con el header
+`Authorization: Bearer <API_TOKEN>` (salvo `/health`). Guía de uso con ejemplos copiables:
+[docs/uso-api.md](docs/uso-api.md).
 
 | Endpoint | Devuelve |
 |---|---|
 | `GET /health` | estado (sin token) |
 | `GET /proveedores` | proveedores y suministros |
-| `GET /{proveedor}/{suministro}/recibos?limit=N&pdf=false` | recibos normalizados |
+| `GET /{proveedor}/{suministro}/recibos?limit=N&pdf=false` | últimos N recibos |
+| `GET /{proveedor}/{suministro}/recibos?desde=YYYY-MM&hasta=YYYY-MM` | recibos de un rango de meses |
+| `GET /{proveedor}/{suministro}/recibo/{YYYY-MM}` | un recibo de un mes exacto |
+| `GET /{proveedor}/{suministro}/recibo/{YYYY-MM}/pdf` | PDF de ese mes |
+| `GET /{proveedor}/{suministro}/recibo/{numero}/pdf` | PDF por número de recibo |
 | `GET /{proveedor}/{suministro}/consumo` | consumo mensual |
-| `GET /{proveedor}/{suministro}/recibo/{numero}/pdf` | PDF del recibo |
-| `GET /sync?limit=N` | recibos + consumo de todo |
-| `GET /sync/rows?limit=N` | filas planas para hoja de cálculo |
+| `GET /sync?limit=N` | recibos + consumo de todos los suministros del `.env` |
+| `GET /sync/rows?limit=N` | filas planas (una por recibo) para hoja de cálculo |
 
 `proveedor` = `sedapal` | `calidda` | `luzdelsur`.
 
 Cada recibo trae: `proveedor, servicio, suministro, titular, direccion, periodo, fecha_emision,
 fecha_vencimiento, numero_recibo, consumo, unidad, lectura_anterior, lectura_actual,
-lectura_diferencia, precio_unitario, importe_total, moneda, estado, conceptos[], tarifa[]`.
+lectura_diferencia, precio_unitario, importe_total, moneda, estado, conceptos[], tarifa[]`,
+más los campos parseados del PDF: `fecha_tarifa, periodo_inicio, periodo_fin` (agua) y
+`fecha_lectura_actual, fecha_lectura_anterior` (luz).
+
+### Ejemplo rápido
+
+```bash
+TOKEN=<tu API_TOKEN>
+BASE=https://rendo-services.duckdns.org
+
+# recibo de agua de un mes exacto
+curl -H "Authorization: Bearer $TOKEN" "$BASE/sedapal/5998198/recibo/2026-07"
+
+# recibos de luz de un rango
+curl -H "Authorization: Bearer $TOKEN" "$BASE/luzdelsur/1491533/recibos?desde=2026-01&hasta=2026-08"
+
+# PDF de un mes
+curl -H "Authorization: Bearer $TOKEN" "$BASE/sedapal/5998198/recibo/2026-07/pdf" -o recibo.pdf
+```
+
+### Alcance del histórico
+
+| Servicio | Desde | Requisito |
+|---|---|---|
+| Sedapal (agua) | ~2010 | cualquier NIS, sin DNI |
+| Luz del Sur (luz) | ~2006 | suministros de tu cuenta (el mes actual es público) |
+| Cálidda (gas) | por mes/año | suministros de tu cuenta |
 
 ## Docker (para tu VPS junto a n8n)
 
