@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from ..config import LuzDelSurCfg
+from ..dates import en_rango
 from ..pdf_utils import num, pdf_to_text
 
 _MESES = {"ene": 1, "feb": 2, "mar": 3, "abr": 4, "may": 5, "jun": 6,
@@ -100,39 +101,60 @@ class LuzDelSurProvider:
             rows += j.get("datos", {}).get("listadoHistoriaFacturacion") or []
         return rows
 
+    def _build(self, suministro: str, h: dict, cons: dict, incluir_pdf: bool, detalle_pdf: bool) -> dict[str, Any]:
+        periodo = self._fecha_periodo(h.get("fechaEmision"))
+        c = cons.get(periodo, {})
+        r: dict[str, Any] = {
+            "proveedor": "luzdelsur", "servicio": "luz",
+            "suministro": str(suministro), "titular": None, "direccion": None,
+            "periodo": periodo,
+            "fecha_emision": h.get("fechaEmision"), "fecha_vencimiento": h.get("fechaVencimiento"),
+            "numero_recibo": str(h.get("corrFacturacion")),
+            "consumo": c.get("consumo"), "unidad": "kWh",
+            "lectura_anterior": None, "lectura_actual": None, "lectura_diferencia": None,
+            "precio_unitario": None,
+            "importe_total": c.get("importe") if c.get("importe") is not None else h.get("total"),
+            "moneda": "PEN",
+            "estado": None, "conceptos": [], "tarifa": None, "pdf_base64": None,
+            "_raw": h,
+        }
+        if detalle_pdf or incluir_pdf:
+            try:
+                pdf = self._boleta(suministro, str(h.get("corrFacturacion")))
+                if incluir_pdf:
+                    r["pdf_base64"] = base64.b64encode(pdf).decode()
+                self._merge_pdf(r, pdf_to_text(pdf))
+            except Exception:
+                pass
+        return r
+
     def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False,
+                desde: str | None = None, hasta: str | None = None,
                 detalle_pdf: bool = True) -> list[dict[str, Any]]:
         import datetime
-        y = datetime.date.today().year
-        hist = self._historial(suministro, [str(y), str(y - 1)])[:limit]
         cons = {c["periodo"]: c for c in self.consumo(suministro)}
-        out = []
-        for h in hist:
-            periodo = self._fecha_periodo(h.get("fechaEmision"))
-            c = cons.get(periodo, {})
-            r: dict[str, Any] = {
-                "proveedor": "luzdelsur", "servicio": "luz",
-                "suministro": str(suministro), "titular": None, "direccion": None,
-                "periodo": periodo,
-                "fecha_emision": h.get("fechaEmision"), "fecha_vencimiento": h.get("fechaVencimiento"),
-                "numero_recibo": str(h.get("corrFacturacion")),
-                "consumo": c.get("consumo"), "unidad": "kWh",
-                "lectura_anterior": None, "lectura_actual": None, "lectura_diferencia": None,
-                "precio_unitario": None,
-                "importe_total": c.get("importe"), "moneda": "PEN",
-                "estado": None, "conceptos": [], "tarifa": None, "pdf_base64": None,
-                "_raw": h,
-            }
-            if detalle_pdf or incluir_pdf:
-                try:
-                    pdf = self._boleta(suministro, str(h.get("corrFacturacion")))
-                    if incluir_pdf:
-                        r["pdf_base64"] = base64.b64encode(pdf).decode()
-                    self._merge_pdf(r, pdf_to_text(pdf))
-                except Exception:
-                    pass
-            out.append(r)
-        return out
+        if desde or hasta:
+            y1 = int((hasta or desde)[:4]); y0 = int((desde or hasta)[:4])
+            anios = [str(y) for y in range(max(y0, y1), min(y0, y1) - 1, -1)]
+            hist = [h for h in self._historial(suministro, anios)
+                    if en_rango(self._fecha_periodo(h.get("fechaEmision")), desde, hasta)]
+        else:
+            y = datetime.date.today().year
+            hist = self._historial(suministro, [str(y), str(y - 1)])[:limit]
+        return [self._build(suministro, h, cons, incluir_pdf, detalle_pdf) for h in hist]
+
+    def recibo(self, suministro: str, periodo: str, incluir_pdf: bool = False) -> dict[str, Any] | None:
+        cons = {c["periodo"]: c for c in self.consumo(suministro)}
+        for h in self._historial(suministro, [periodo[:4]]):
+            if self._fecha_periodo(h.get("fechaEmision")) == periodo:
+                return self._build(suministro, h, cons, incluir_pdf, True)
+        return None
+
+    def pdf_periodo(self, suministro: str, periodo: str) -> bytes:
+        for h in self._historial(suministro, [periodo[:4]]):
+            if self._fecha_periodo(h.get("fechaEmision")) == periodo:
+                return self._boleta(suministro, str(h.get("corrFacturacion")))
+        raise KeyError(f"no hay recibo de luz del periodo {periodo} para {suministro}")
 
     @staticmethod
     def _fecha_periodo(fecha: str | None) -> str | None:

@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from ..config import CaliddaCfg
+from ..dates import periodos_en_rango
 from ..pdf_utils import num
 
 BACK = "https://appadmin.calidda.com.pe/Back/api"
@@ -80,10 +81,49 @@ class CaliddaProvider:
     def _bills(self, suministro: str) -> list[dict]:
         return self._get(BACKOV, "Bill/ListLastBills", {"clientCode": _cc(suministro)}).json().get("data") or []
 
+    def _detalle_mes(self, suministro: str, periodo: str, cons: dict, incluir_pdf: bool) -> dict[str, Any] | None:
+        """Recibo de un mes concreto vía GetDetailedBill(clientCode, month, year)."""
+        y, m = int(periodo[:4]), int(periodo[5:7])
+        r = self._get(BACKOV, "Bill/GetDetailedBill", {"clientCode": _cc(suministro), "month": m, "year": y})
+        d = r.json().get("data")
+        if not d or not d.get("itemList"):
+            return None
+        conceptos = [{"descripcion": it.get("partialOperationName"), "monto": num(str(it.get("amount")))}
+                     for it in d["itemList"]]
+        total = round(sum((cn["monto"] or 0) for cn in conceptos), 2)
+        c = cons.get(periodo, {})
+        rec: dict[str, Any] = {
+            "proveedor": "calidda", "servicio": "gas",
+            "suministro": str(suministro), "titular": None, "direccion": None,
+            "periodo": periodo, "fecha_emision": None, "fecha_vencimiento": None,
+            "numero_recibo": d.get("number"),
+            "consumo": c.get("consumo"), "unidad": "m3",
+            "lectura_anterior": None, "lectura_actual": c.get("lectura"), "lectura_diferencia": None,
+            "precio_unitario": None,
+            "importe_total": total, "moneda": "PEN", "estado": None,
+            "conceptos": conceptos, "tarifa": None, "pdf_base64": None, "_raw": d,
+        }
+        if incluir_pdf:
+            try:
+                rec["pdf_base64"] = base64.b64encode(self.pdf_periodo(suministro, periodo)).decode()
+            except Exception:
+                pass
+        return rec
+
     def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False,
+                desde: str | None = None, hasta: str | None = None,
                 detalle_pdf: bool = False) -> list[dict[str, Any]]:
-        bills = self._bills(suministro)[:limit]
         cons = {c["periodo"]: c for c in self.consumo(suministro)}
+        if desde or hasta:
+            hi = hasta or desde
+            lo = desde or hasta
+            out = []
+            for periodo in periodos_en_rango(lo, hi):
+                rec = self._detalle_mes(suministro, periodo, cons, incluir_pdf)
+                if rec:
+                    out.append(rec)
+            return out
+        bills = self._bills(suministro)[:limit]
         out = []
         for b in bills:
             issue = str(b.get("issueDate", ""))
@@ -110,6 +150,10 @@ class CaliddaProvider:
             out.append(r)
         return out
 
+    def recibo(self, suministro: str, periodo: str, incluir_pdf: bool = False) -> dict[str, Any] | None:
+        cons = {c["periodo"]: c for c in self.consumo(suministro)}
+        return self._detalle_mes(suministro, periodo, cons, incluir_pdf)
+
     def _pdf(self, suministro: str, issue_date: str) -> bytes:
         r = self._get(BACKOV, "Bill/download",
                       {"issueDate": issue_date, "clientCode": _cc(suministro)}, accept="application/pdf")
@@ -120,3 +164,10 @@ class CaliddaProvider:
             if str(b.get("number")) == str(recibo_id):
                 return self._pdf(suministro, str(b.get("issueDate")))
         raise KeyError(f"recibo {recibo_id} no encontrado")
+
+    def pdf_periodo(self, suministro: str, periodo: str) -> bytes:
+        # el PDF se baja por issueDate; disponible para meses que aparecen en ListLastBills
+        for b in self._bills(suministro):
+            if str(b.get("issueDate", ""))[:7] == periodo:
+                return self._pdf(suministro, str(b.get("issueDate")))
+        raise KeyError(f"PDF de gas del periodo {periodo} no disponible por API (fuera de los últimos recibos)")

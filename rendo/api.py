@@ -5,6 +5,7 @@ Protegida con el header:  Authorization: Bearer <API_TOKEN de tu .env>
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -61,18 +62,41 @@ def consumo(proveedor: str, suministro: str) -> list[dict[str, Any]]:
     return _prov(proveedor).consumo(suministro)
 
 
+_PERIODO_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
 @app.get("/{proveedor}/{suministro}/recibos", dependencies=[Depends(auth)])
 def recibos(proveedor: str, suministro: str,
             limit: int = Query(12, ge=1, le=48),
+            desde: str | None = Query(None, description="periodo inicial YYYY-MM (rango)"),
+            hasta: str | None = Query(None, description="periodo final YYYY-MM (rango)"),
             pdf: bool = Query(False, description="incluir el PDF en base64")) -> list[dict[str, Any]]:
-    return _prov(proveedor).recibos(suministro, limit=limit, incluir_pdf=pdf)
+    """Sin desde/hasta: los últimos `limit`. Con desde/hasta: todos los del rango (YYYY-MM)."""
+    return _prov(proveedor).recibos(suministro, limit=limit, incluir_pdf=pdf, desde=desde, hasta=hasta)
 
 
-@app.get("/{proveedor}/{suministro}/recibo/{recibo_id}/pdf", dependencies=[Depends(auth)])
-def recibo_pdf(proveedor: str, suministro: str, recibo_id: str) -> Response:
-    data = _prov(proveedor).pdf(suministro, recibo_id)
+@app.get("/{proveedor}/{suministro}/recibo/{periodo}", dependencies=[Depends(auth)])
+def recibo_mes(proveedor: str, suministro: str, periodo: str,
+               pdf: bool = Query(False, description="incluir el PDF en base64")) -> dict[str, Any]:
+    """Un recibo de un mes concreto. `periodo` = YYYY-MM."""
+    if not _PERIODO_RE.match(periodo):
+        raise HTTPException(400, "periodo debe ser YYYY-MM, p.ej. 2024-07")
+    r = _prov(proveedor).recibo(suministro, periodo, incluir_pdf=pdf)
+    if r is None:
+        raise HTTPException(404, f"no hay recibo de {proveedor} del periodo {periodo} para {suministro}")
+    return r
+
+
+@app.get("/{proveedor}/{suministro}/recibo/{ident}/pdf", dependencies=[Depends(auth)])
+def recibo_pdf(proveedor: str, suministro: str, ident: str) -> Response:
+    """PDF de un recibo. `ident` puede ser un periodo (YYYY-MM) o el numero_recibo."""
+    p = _prov(proveedor)
+    try:
+        data = p.pdf_periodo(suministro, ident) if _PERIODO_RE.match(ident) else p.pdf(suministro, ident)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
     return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition": f'inline; filename="{proveedor}_{suministro}_{recibo_id}.pdf"'})
+                    headers={"Content-Disposition": f'inline; filename="{proveedor}_{suministro}_{ident}.pdf"'})
 
 
 @app.get("/sync", dependencies=[Depends(auth)])

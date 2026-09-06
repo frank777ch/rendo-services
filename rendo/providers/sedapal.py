@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from ..config import SedapalCfg
+from ..dates import en_rango
 from ..pdf_utils import num, pdf_to_text
 
 API = "https://webapp16.sedapal.com.pe/OficinaComercialVirtual/api"
@@ -68,46 +69,75 @@ class SedapalProvider:
                        {"nis_rad": int(suministro), "page_num": 1, "page_size": limit})
         return j.get("bRESP") or []
 
-    def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False,
-                detalle_pdf: bool = True) -> list[dict[str, Any]]:
-        crudos = self._lista_deudas(suministro, limit) + self._lista_pagados(suministro, limit)
-        crudos = crudos[:limit]
-        consumo_por_periodo = {c["periodo"]: c for c in self.consumo(suministro)}
-        out = []
-        for rec in crudos:
-            ff = str(rec.get("f_fact", ""))
-            periodo = ff[:7] if len(ff) >= 7 else ff
-            conceptos = []
+    def _todos_crudos(self, suministro: str, page_size: int = 200) -> list[dict]:
+        """Deudas + todos los recibos pagados (Sedapal guarda ~197, hasta 2010)."""
+        return self._lista_deudas(suministro, page_size) + self._lista_pagados(suministro, page_size)
+
+    def _build(self, suministro: str, rec: dict, consumo_por_periodo: dict,
+               incluir_pdf: bool, detalle_pdf: bool) -> dict[str, Any]:
+        ff = str(rec.get("f_fact", ""))
+        periodo = ff[:7] if len(ff) >= 7 else ff
+        conceptos = []
+        try:
+            det = self._post("/recibos/detalle-recibo", rec).get("bRESP") or []
+            conceptos = [{"descripcion": c.get("desc_concepto"), "monto": c.get("monto_concepto")} for c in det]
+        except Exception:
+            pass
+        r: dict[str, Any] = {
+            "proveedor": "sedapal", "servicio": "agua",
+            "suministro": str(suministro), "titular": rec.get("nom_cliente"),
+            "direccion": None, "periodo": periodo,
+            "fecha_emision": rec.get("f_fact"), "fecha_vencimiento": rec.get("vencimiento"),
+            "numero_recibo": str(rec.get("recibo")) if rec.get("recibo") is not None else None,
+            "consumo": (consumo_por_periodo.get(periodo) or {}).get("consumo"),
+            "unidad": "m3",
+            "lectura_anterior": None, "lectura_actual": None, "lectura_diferencia": None,
+            "precio_unitario": None,
+            "importe_total": rec.get("total_fact"), "moneda": "PEN",
+            "estado": rec.get("estado"),
+            "conceptos": conceptos, "tarifa": None, "pdf_base64": None,
+            "_raw": rec,
+        }
+        # el consumo (m3) tambien esta en el concepto "Volumen de Agua Potable X m3"
+        if r["consumo"] is None:
+            for c in conceptos:
+                mm = re.search(r"([\d.]+)\s*m3", str(c.get("descripcion") or ""))
+                if mm:
+                    r["consumo"] = float(mm.group(1)); break
+        if detalle_pdf or incluir_pdf:
             try:
-                det = self._post("/recibos/detalle-recibo", rec).get("bRESP") or []
-                conceptos = [{"descripcion": c.get("desc_concepto"), "monto": c.get("monto_concepto")} for c in det]
+                pdf = self._pdf_bytes(rec)
+                if incluir_pdf:
+                    r["pdf_base64"] = base64.b64encode(pdf).decode()
+                self._merge_pdf(r, pdf_to_text(pdf))
             except Exception:
                 pass
-            r: dict[str, Any] = {
-                "proveedor": "sedapal", "servicio": "agua",
-                "suministro": str(suministro), "titular": rec.get("nom_cliente"),
-                "direccion": None, "periodo": periodo,
-                "fecha_emision": rec.get("f_fact"), "fecha_vencimiento": rec.get("vencimiento"),
-                "numero_recibo": str(rec.get("recibo")) if rec.get("recibo") is not None else None,
-                "consumo": (consumo_por_periodo.get(periodo) or {}).get("consumo"),
-                "unidad": "m3",
-                "lectura_anterior": None, "lectura_actual": None, "lectura_diferencia": None,
-                "precio_unitario": None,
-                "importe_total": rec.get("total_fact"), "moneda": "PEN",
-                "estado": rec.get("estado"),
-                "conceptos": conceptos, "tarifa": None, "pdf_base64": None,
-                "_raw": rec,
-            }
-            if detalle_pdf or incluir_pdf:
-                try:
-                    pdf = self._pdf_bytes(rec)
-                    if incluir_pdf:
-                        r["pdf_base64"] = base64.b64encode(pdf).decode()
-                    self._merge_pdf(r, pdf_to_text(pdf))
-                except Exception:
-                    pass
-            out.append(r)
-        return out
+        return r
+
+    def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False,
+                desde: str | None = None, hasta: str | None = None,
+                detalle_pdf: bool = True) -> list[dict[str, Any]]:
+        consumo_por_periodo = {c["periodo"]: c for c in self.consumo(suministro)}
+        if desde or hasta:
+            crudos = [r for r in self._todos_crudos(suministro)
+                      if en_rango(str(r.get("f_fact", ""))[:7], desde, hasta)]
+        else:
+            crudos = self._todos_crudos(suministro, page_size=limit)[:limit]
+        crudos.sort(key=lambda r: str(r.get("f_fact", "")), reverse=True)
+        return [self._build(suministro, rec, consumo_por_periodo, incluir_pdf, detalle_pdf) for rec in crudos]
+
+    def recibo(self, suministro: str, periodo: str, incluir_pdf: bool = False) -> dict[str, Any] | None:
+        consumo_por_periodo = {c["periodo"]: c for c in self.consumo(suministro)}
+        for rec in self._todos_crudos(suministro):
+            if str(rec.get("f_fact", ""))[:7] == periodo:
+                return self._build(suministro, rec, consumo_por_periodo, incluir_pdf, True)
+        return None
+
+    def pdf_periodo(self, suministro: str, periodo: str) -> bytes:
+        for rec in self._todos_crudos(suministro):
+            if str(rec.get("f_fact", ""))[:7] == periodo:
+                return self._pdf_bytes(rec)
+        raise KeyError(f"no hay recibo de agua del periodo {periodo} para {suministro}")
 
     def _pdf_bytes(self, rec: dict) -> bytes:
         j = self._post("/recibos/recibo-pdf", rec)

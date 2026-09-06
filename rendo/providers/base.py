@@ -38,8 +38,16 @@ class Provider(Protocol):
         """Lista de suministros/códigos disponibles para esta cuenta."""
         ...
 
-    def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False) -> list[dict[str, Any]]:
-        """Recibos normalizados (JSON + campos parseados del PDF), del más reciente al más antiguo."""
+    def recibos(self, suministro: str, limit: int = 12, incluir_pdf: bool = False,
+                desde: str | None = None, hasta: str | None = None) -> list[dict[str, Any]]:
+        """Recibos normalizados, del más reciente al más antiguo.
+
+        Sin `desde`/`hasta`: los últimos `limit`. Con rango (periodos "YYYY-MM"):
+        todos los recibos cuyo periodo cae en [desde, hasta]."""
+        ...
+
+    def recibo(self, suministro: str, periodo: str, incluir_pdf: bool = False) -> dict[str, Any] | None:
+        """Un recibo de un mes concreto (periodo "YYYY-MM"), con todos sus campos. None si no existe."""
         ...
 
     def consumo(self, suministro: str) -> list[dict[str, Any]]:
@@ -48,4 +56,8 @@ class Provider(Protocol):
 
     def pdf(self, suministro: str, recibo_id: str) -> bytes:
         """Bytes del PDF de un recibo (recibo_id = numero_recibo del objeto recibo)."""
+        ...
+
+    def pdf_periodo(self, suministro: str, periodo: str) -> bytes:
+        """Bytes del PDF del recibo de un mes concreto (periodo "YYYY-MM")."""
         ...
