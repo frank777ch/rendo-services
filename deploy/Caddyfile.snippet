@@ -1,0 +1,5 @@
+# Añade este bloque a tu Caddyfile (cambia el subdominio por el tuyo).
+# Caddy saca el certificado HTTPS solo. rendo escucha en 127.0.0.1:8000.
+servicios.TU-DOMINIO.com {
+    reverse_proxy 127.0.0.1:8000
+}

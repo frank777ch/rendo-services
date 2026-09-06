@@ -1,0 +1,15 @@
+services:
+  rendo:
+    build: .
+    image: rendo-services:latest
+    container_name: rendo
+    restart: unless-stopped
+    env_file: .env
+    # Solo expuesto al propio servidor; tu proxy (Caddy) le habla por 127.0.0.1.
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

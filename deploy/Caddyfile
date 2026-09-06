@@ -1,0 +1,4 @@
+# Caddyfile para el stack completo (deploy/docker-compose.caddy.yml)
+servicios.TU-DOMINIO.com {
+    reverse_proxy rendo:8000
+}

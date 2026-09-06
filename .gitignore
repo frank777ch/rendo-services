@@ -216,3 +216,18 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- aquanet (secretos y datos locales) ---
+.env
+auth_state.json
+data/
+recon/
+
+# claves de despliegue (nunca al repo)
+deploy_key
+deploy_key.pub
+*.pem
+
+# config local de Claude Code (no compartir)
+.claude/settings.local.json
+.github/workflows/

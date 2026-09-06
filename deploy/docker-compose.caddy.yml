@@ -1,0 +1,23 @@
+# Usar SOLO si no tienes ya Caddy/nginx/Traefik ocupando los puertos 80/443.
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.caddy.yml up -d
+services:
+  rendo:
+    ports: !reset []          # deja de exponer al host; Caddy le habla por la red interna
+    expose:
+      - "8000"
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - rendo
+volumes:
+  caddy_data:
+  caddy_config:
