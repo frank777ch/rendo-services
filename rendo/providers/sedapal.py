@@ -95,7 +95,9 @@ class SedapalProvider:
             "precio_unitario": None,
             "importe_total": rec.get("total_fact"), "moneda": "PEN",
             "estado": rec.get("estado"),
-            "conceptos": conceptos, "tarifa": None, "pdf_base64": None,
+            "conceptos": conceptos, "tarifa": None,
+            "fecha_tarifa": None, "periodo_inicio": None, "periodo_fin": None,
+            "pdf_base64": None,
             "_raw": rec,
         }
         # el consumo (m3) tambien esta en el concepto "Volumen de Agua Potable X m3"
@@ -160,6 +162,15 @@ class SedapalProvider:
             r["lectura_anterior"] = float(m.group(1))
             r["lectura_actual"] = float(m.group(2))
             r["lectura_diferencia"] = float(m.group(3))
+        # fecha de la estructura tarifaria: "Estructura Tarifaria (30/12/2025)"
+        mt = re.search(r"Estructura Tarifaria\s*\((\d{2}/\d{2}/\d{4})\)", text)
+        if mt:
+            r["fecha_tarifa"] = mt.group(1)
+        # periodo de consumo: "12/06/2026 - 13/07/2026"
+        mp = re.search(r"(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})", text)
+        if mp:
+            r["periodo_inicio"] = mp.group(1)
+            r["periodo_fin"] = mp.group(2)
         # estructura tarifaria: rangos con precio agua y alcantarillado
         tarifa = []
         for mm in re.finditer(r"(\d+\s*a\s*\d+|\d+\s*a\s*m[aá]s)\s+([\d.,]+)\s+([\d.,]+)", text):

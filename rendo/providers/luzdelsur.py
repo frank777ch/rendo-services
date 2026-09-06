@@ -26,10 +26,24 @@ _CONCEPTOS = [
     ("Alumbrado Público", "alumbrado_publico"),
     ("Interés Compensatorio", "interes_compensatorio"),
     ("SUBTOTAL", "subtotal"),
+    ("Electrificación Rural (Ley N° 28749)", "electrificacion_rural"),
     ("IGV", "igv"),
     ("Interés Moratorio", "interes_moratorio"),
     ("TOTAL DEL MES", "total_del_mes"),
 ]
+
+# meses en español abreviados que usa el PDF de Luz del Sur (Ene, Feb, ...)
+_MES_ABR = {"ene": "01", "feb": "02", "mar": "03", "abr": "04", "may": "05", "jun": "06",
+            "jul": "07", "ago": "08", "set": "09", "sep": "09", "oct": "10", "nov": "11", "dic": "12"}
+
+
+def _fecha_pdf(s: str) -> str | None:
+    """'24/Jul/26' -> '2026-07-24'."""
+    m = re.match(r"(\d{2})/([A-Za-z]{3})/(\d{2})", s.strip())
+    if not m:
+        return None
+    mes = _MES_ABR.get(m.group(2).lower())
+    return f"20{m.group(3)}-{mes}-{m.group(1)}" if mes else None
 
 
 class LuzDelSurProvider:
@@ -115,7 +129,9 @@ class LuzDelSurProvider:
             "precio_unitario": None,
             "importe_total": c.get("importe") if c.get("importe") is not None else h.get("total"),
             "moneda": "PEN",
-            "estado": None, "conceptos": [], "tarifa": None, "pdf_base64": None,
+            "estado": None, "conceptos": [], "tarifa": None,
+            "fecha_lectura_actual": None, "fecha_lectura_anterior": None,
+            "pdf_base64": None,
             "_raw": h,
         }
         if detalle_pdf or incluir_pdf:
@@ -186,6 +202,11 @@ class LuzDelSurProvider:
             r["lectura_anterior"] = num(m.group(2))
             r["lectura_diferencia"] = num(m.group(3))
             r["precio_unitario"] = num(m.group(4))
+        # fechas de lectura: "24/Jul/26  24/Jun/26" (actual, anterior)
+        md = re.search(r"(\d{2}/[A-Za-z]{3}/\d{2})\s+(\d{2}/[A-Za-z]{3}/\d{2})", text)
+        if md:
+            r["fecha_lectura_actual"] = _fecha_pdf(md.group(1))
+            r["fecha_lectura_anterior"] = _fecha_pdf(md.group(2))
         conceptos = []
         for label, _key in _CONCEPTOS:
             mm = re.search(re.escape(label) + r"\s+([\d.,]+)", text)

@@ -22,6 +22,11 @@ Cada recibo normalizado (dict) tiene estos campos:
     estado               str | None     ("Cobrado" | "Pendiente" | ...)
     conceptos            [ {"descripcion": str, "monto": float} ]
     tarifa               [ {...} ] | None   (estructura tarifaria; agua)
+    fecha_tarifa         str | None     (agua: fecha de la estructura tarifaria)
+    periodo_inicio       str | None     (agua: inicio del periodo de consumo)
+    periodo_fin          str | None     (agua: fin del periodo de consumo)
+    fecha_lectura_actual str | None     (luz: fecha de la última lectura)
+    fecha_lectura_anterior str | None   (luz: fecha de la lectura anterior)
     pdf_base64           str | None     (solo si se pide con incluir_pdf=True)
 
 Y un consumo histórico (dict): { "periodo": "YYYY-MM", "consumo": float, "importe": float }
