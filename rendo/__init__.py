@@ -9,4 +9,4 @@ Todo por HTTP (httpx). No usa navegador ni OCR: los montos salen del JSON de las
 APIs y los campos que solo están en el PDF se leen del texto del PDF.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
